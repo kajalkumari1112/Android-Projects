@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">CryptoPriceTracker</string>
+    <string name="widget_description">Display a crypto collection on your home screen</string>
 </resources>
