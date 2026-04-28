@@ -102,6 +102,8 @@ class CoinListViewModel @Inject constructor(
                 widgetRefreshHelper.refreshAll()
             }
             is CoinListEvent.SubscribePrices -> subscribeToPrices(event.symbols)
+            is CoinListEvent.SearchQueryChanged -> _uiState.update { it.copy(searchQuery = event.query) }
+            is CoinListEvent.FilterChanged -> _uiState.update { it.copy(activeFilter = event.filter) }
         }
     }
 }

@@ -6,13 +6,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.FolderCopy
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -20,14 +25,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -109,7 +114,9 @@ fun CoinListScreen(
                 onCreateCollection = { coinId, name ->
                     viewModel.onEvent(CoinListEvent.CreateCollectionAndAdd(coinId, name))
                 },
-                onCoinVisible = { coinId -> viewModel.observeCollectionMembership(coinId) }
+                onCoinVisible = { coinId -> viewModel.observeCollectionMembership(coinId) },
+                onSearchQueryChanged = { viewModel.onEvent(CoinListEvent.SearchQueryChanged(it)) },
+                onFilterChanged = { viewModel.onEvent(CoinListEvent.FilterChanged(it)) }
             )
         }
     }
@@ -124,6 +131,8 @@ fun CoinListScreen(
     }
 }
 
+// ─── Paging list ──────────────────────────────────────────────────────────────
+
 @Composable
 private fun CoinPagingList(
     pagedCoins: LazyPagingItems<Coin>,
@@ -131,81 +140,256 @@ private fun CoinPagingList(
     onAddToCollection: (String, Long) -> Unit,
     onRemoveFromCollection: (String, Long) -> Unit,
     onCreateCollection: (String, String) -> Unit,
-    onCoinVisible: (String) -> Unit
+    onCoinVisible: (String) -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
+    onFilterChanged: (CoinFilter) -> Unit
 ) {
     val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+
+    // Apply search + filter client-side over the visible paged items
+    val allCoins = (0 until pagedCoins.itemCount).mapNotNull { pagedCoins.peek(it) }
+    val filtered = remember(allCoins, uiState.searchQuery, uiState.activeFilter, uiState.coinCollectionIds, uiState.livePrices) {
+        allCoins
+            .filter { coin ->
+                val q = uiState.searchQuery.trim().lowercase()
+                q.isEmpty() || coin.name.lowercase().contains(q) || coin.symbol.lowercase().contains(q)
+            }
+            .let { list ->
+                when (uiState.activeFilter) {
+                    CoinFilter.ALL -> list
+                    CoinFilter.TOP_GAINERS -> list.filter { (it.priceChangePercentage24h ?: 0.0) > 0 }
+                        .sortedByDescending { it.priceChangePercentage24h ?: 0.0 }
+                    CoinFilter.LOSERS -> list.filter { (it.priceChangePercentage24h ?: 0.0) < 0 }
+                        .sortedBy { it.priceChangePercentage24h ?: 0.0 }
+                    CoinFilter.WATCHLIST -> list.filter {
+                        (uiState.coinCollectionIds[it.id] ?: emptyList()).isNotEmpty()
+                    }
+                }
+            }
+    }
 
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Header
+        // ── Search bar ──────────────────────────────────────────────────────
         item {
-            CoinListHeader()
-        }
-
-        // Coin items
-        items(
-            count = pagedCoins.itemCount,
-            key = pagedCoins.itemKey { it.id }
-        ) { index ->
-            val coin = pagedCoins[index] ?: return@items
-            // Trigger collection membership observation when item becomes visible
-            LaunchedEffect(coin.id) { onCoinVisible(coin.id) }
-
-            val livePrice = uiState.livePrices[coin.binanceSymbol] ?: coin.currentPrice
-            val collectionIds = uiState.coinCollectionIds[coin.id] ?: emptyList()
-
-            CoinListItem(
-                coin = coin,
-                livePrice = livePrice,
-                collections = uiState.collections,
-                coinCollectionIds = collectionIds,
-                onAddToCollection = onAddToCollection,
-                onRemoveFromCollection = onRemoveFromCollection,
-                onCreateCollection = onCreateCollection
+            SearchBar(
+                query = uiState.searchQuery,
+                onQueryChange = onSearchQueryChanged,
+                onDone = { focusManager.clearFocus() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             )
         }
 
-        // Loading footer
+        // ── Filter chips ────────────────────────────────────────────────────
+        item {
+            FilterChipRow(
+                activeFilter = uiState.activeFilter,
+                onFilterSelected = onFilterChanged,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+        }
+
+        // ── Summary row: N COINS | RANK | PRICE | CHANGE ────────────────────
+        item {
+            SummaryHeader(
+                count = filtered.size,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+
+        // ── Coin items ──────────────────────────────────────────────────────
+        if (uiState.searchQuery.isNotBlank() || uiState.activeFilter != CoinFilter.ALL) {
+            // Filtered view — render from the in-memory list
+            items(filtered, key = { it.id }) { coin ->
+                LaunchedEffect(coin.id) { onCoinVisible(coin.id) }
+                val livePrice = uiState.livePrices[coin.binanceSymbol] ?: coin.currentPrice
+                val collectionIds = uiState.coinCollectionIds[coin.id] ?: emptyList()
+                CoinListItem(
+                    coin = coin,
+                    livePrice = livePrice,
+                    collections = uiState.collections,
+                    coinCollectionIds = collectionIds,
+                    onAddToCollection = onAddToCollection,
+                    onRemoveFromCollection = onRemoveFromCollection,
+                    onCreateCollection = onCreateCollection,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        } else {
+            // Default — use the full paged list
+            items(count = pagedCoins.itemCount, key = pagedCoins.itemKey { it.id }) { index ->
+                val coin = pagedCoins[index] ?: return@items
+                LaunchedEffect(coin.id) { onCoinVisible(coin.id) }
+                val livePrice = uiState.livePrices[coin.binanceSymbol] ?: coin.currentPrice
+                val collectionIds = uiState.coinCollectionIds[coin.id] ?: emptyList()
+                CoinListItem(
+                    coin = coin,
+                    livePrice = livePrice,
+                    collections = uiState.collections,
+                    coinCollectionIds = collectionIds,
+                    onAddToCollection = onAddToCollection,
+                    onRemoveFromCollection = onRemoveFromCollection,
+                    onCreateCollection = onCreateCollection,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+        }
+
+        // Loading / error footers
         when (val state = pagedCoins.loadState.append) {
             is LoadState.Loading -> item { LoadingFooter() }
             is LoadState.Error -> item { ErrorFooter(state.error.message) { pagedCoins.retry() } }
             else -> Unit
         }
-
-        // Full-screen error on REFRESH
         when (val state = pagedCoins.loadState.refresh) {
-            is LoadState.Error -> item {
-                ErrorContent(state.error.message) { pagedCoins.refresh() }
-            }
+            is LoadState.Error -> item { ErrorContent(state.error.message) { pagedCoins.refresh() } }
             else -> Unit
         }
     }
 }
 
+// ─── Search bar ───────────────────────────────────────────────────────────────
+
 @Composable
-private fun CoinListHeader() {
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = {
+            Text(
+                "Search coins...",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        leadingIcon = {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(50),
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedBorderColor = Color.Transparent,
+            focusedBorderColor = MaterialTheme.colorScheme.primary
+        ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onDone() }),
+        modifier = modifier
+    )
+}
+
+// ─── Filter chips row ─────────────────────────────────────────────────────────
+
+private val filterLabels = listOf(
+    CoinFilter.ALL to "All",
+    CoinFilter.TOP_GAINERS to "Top Gainers",
+    CoinFilter.LOSERS to "Losers",
+    CoinFilter.WATCHLIST to "Watchlist"
+)
+
+@Composable
+private fun FilterChipRow(
+    activeFilter: CoinFilter,
+    onFilterSelected: (CoinFilter) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(filterLabels) { (filter, label) ->
+            val selected = filter == activeFilter
+            FilterChip(
+                selected = selected,
+                onClick = { onFilterSelected(filter) },
+                label = {
+                    Text(
+                        label,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                    )
+                },
+                shape = RoundedCornerShape(50),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Color(0xFF6C3CE1),
+                    selectedLabelColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selected,
+                    borderColor = Color.Transparent,
+                    selectedBorderColor = Color.Transparent
+                )
+            )
+        }
+    }
+}
+
+// ─── Summary header ───────────────────────────────────────────────────────────
+
+@Composable
+private fun SummaryHeader(count: Int, modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "Coin",
+            text = "$count COINS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        // RANK pill
+        Box(
+            modifier = Modifier
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    RoundedCornerShape(50)
+                )
+                .padding(horizontal = 10.dp, vertical = 3.dp)
+        ) {
+            Text(
+                "RANK",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "PRICE",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.width(12.dp))
         Text(
-            text = "Price / 24h Change",
+            "CHANGE",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
-    HorizontalDivider()
 }
+
+// ─── Coin list item ───────────────────────────────────────────────────────────
 
 @Composable
 fun CoinListItem(
@@ -215,7 +399,8 @@ fun CoinListItem(
     coinCollectionIds: List<Long>,
     onAddToCollection: (String, Long) -> Unit,
     onRemoveFromCollection: (String, Long) -> Unit,
-    onCreateCollection: (String, String) -> Unit
+    onCreateCollection: (String, String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val isInAnyCollection = coinCollectionIds.isNotEmpty()
@@ -223,12 +408,13 @@ fun CoinListItem(
     val changeColor = if (isPositive) Color(0xFF00C853) else Color(0xFFD50000)
 
     val bookmarkTint by animateColorAsState(
-        targetValue = if (isInAnyCollection) Color(0xFFF5B800) else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (isInAnyCollection) Color(0xFFF5B800)
+        else MaterialTheme.colorScheme.onSurfaceVariant,
         label = "bookmark_tint"
     )
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -239,17 +425,16 @@ fun CoinListItem(
                 .padding(horizontal = 12.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── Rank ──────────────────────────────────────────────────────────
+            // Rank
             Text(
                 text = "${coin.marketCapRank ?: "-"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.width(24.dp)
             )
-
             Spacer(Modifier.width(8.dp))
 
-            // ── Circular icon ─────────────────────────────────────────────────
+            // Circular icon
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -264,7 +449,6 @@ fun CoinListItem(
                         modifier = Modifier.size(44.dp).clip(CircleShape)
                     )
                 } else {
-                    // Initials fallback
                     Text(
                         text = coin.symbol.take(2).uppercase(),
                         style = MaterialTheme.typography.labelMedium,
@@ -273,10 +457,9 @@ fun CoinListItem(
                     )
                 }
             }
-
             Spacer(Modifier.width(12.dp))
 
-            // ── Name + symbol · market cap ─────────────────────────────────────
+            // Name + symbol · market cap
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = coin.name,
@@ -286,25 +469,23 @@ fun CoinListItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${coin.symbol.uppercase()} · ${formatMarketCap(coin.marketCap)}",
+                    text = "${coin.symbol.uppercase()} · \$${formatMarketCap(coin.marketCap)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
-
             Spacer(Modifier.width(8.dp))
 
-            // ── Sparkline ─────────────────────────────────────────────────────
+            // Sparkline
             Sparkline(
                 isPositive = isPositive,
                 color = changeColor,
                 modifier = Modifier.size(width = 56.dp, height = 32.dp)
             )
-
             Spacer(Modifier.width(12.dp))
 
-            // ── Price + change badge ───────────────────────────────────────────
+            // Price + change badge
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = formatPrice(livePrice),
@@ -315,17 +496,12 @@ fun CoinListItem(
                 Spacer(Modifier.height(4.dp))
                 PriceChangeBadge(coin.priceChangePercentage24h)
             }
-
             Spacer(Modifier.width(4.dp))
 
-            // ── Bookmark ──────────────────────────────────────────────────────
-            IconButton(
-                onClick = { showBottomSheet = true },
-                modifier = Modifier.size(36.dp)
-            ) {
+            // Bookmark
+            IconButton(onClick = { showBottomSheet = true }, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = if (isInAnyCollection) Icons.Default.Bookmark
-                    else Icons.Default.BookmarkBorder,
+                    imageVector = if (isInAnyCollection) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                     contentDescription = "Add to collection",
                     tint = bookmarkTint,
                     modifier = Modifier.size(20.dp)
@@ -344,9 +520,7 @@ fun CoinListItem(
                 onAddToCollection(coin.id, collectionId)
                 showBottomSheet = false
             },
-            onRemoveFromCollection = { collectionId ->
-                onRemoveFromCollection(coin.id, collectionId)
-            },
+            onRemoveFromCollection = { collectionId -> onRemoveFromCollection(coin.id, collectionId) },
             onCreateCollection = { name ->
                 onCreateCollection(coin.id, name)
                 showBottomSheet = false
@@ -355,68 +529,48 @@ fun CoinListItem(
     }
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────────
-// Draws a simple 5-point line chart that trends up for positive and down for
-// negative 24h change, with a subtle filled area beneath it.
+// ─── Sparkline ────────────────────────────────────────────────────────────────
+
 @Composable
-private fun Sparkline(
-    isPositive: Boolean,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
+private fun Sparkline(isPositive: Boolean, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val mid = h * 0.5f
-
-        // 5 x-positions evenly spaced
         val xs = listOf(0f, w * 0.25f, w * 0.5f, w * 0.75f, w)
-
-        // y-points: positive trends upward (low y = high), negative downward
-        val ys: List<Float> = if (isPositive) {
+        val ys: List<Float> = if (isPositive)
             listOf(h * 0.75f, h * 0.55f, h * 0.65f, h * 0.35f, h * 0.15f)
-        } else {
+        else
             listOf(h * 0.25f, h * 0.45f, h * 0.35f, h * 0.65f, h * 0.85f)
-        }
 
-        // Filled area path
         val fillPath = Path().apply {
             moveTo(xs[0], ys[0])
-            for (i in 1 until xs.size) {
-                lineTo(xs[i], ys[i])
-            }
-            lineTo(xs.last(), h)
-            lineTo(xs.first(), h)
-            close()
+            for (i in 1 until xs.size) lineTo(xs[i], ys[i])
+            lineTo(xs.last(), h); lineTo(xs.first(), h); close()
         }
         drawPath(fillPath, color = color.copy(alpha = 0.12f))
 
-        // Line path
         val linePath = Path().apply {
             moveTo(xs[0], ys[0])
-            for (i in 1 until xs.size) {
-                lineTo(xs[i], ys[i])
-            }
+            for (i in 1 until xs.size) lineTo(xs[i], ys[i])
         }
         drawPath(linePath, color = color, style = Stroke(width = 2.5f))
     }
 }
 
-// ── Price change badge ────────────────────────────────────────────────────────
+// ─── Price change badge ───────────────────────────────────────────────────────
+
 @Composable
 private fun PriceChangeBadge(changePercent: Double?) {
     if (changePercent == null) return
     val isPositive = changePercent >= 0
     val color = if (isPositive) Color(0xFF00C853) else Color(0xFFD50000)
-    val arrow = if (isPositive) "▲" else "▼"
-
     Box(
         modifier = Modifier
             .background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
             .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
         Text(
-            text = "$arrow ${"%.2f".format(Math.abs(changePercent))}%",
+            text = "${if (isPositive) "▲" else "▼"} ${"%.2f".format(Math.abs(changePercent))}%",
             style = MaterialTheme.typography.labelSmall,
             color = color,
             fontWeight = FontWeight.SemiBold
@@ -424,24 +578,14 @@ private fun PriceChangeBadge(changePercent: Double?) {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 fun formatPrice(price: Double): String {
     val fmt = NumberFormat.getNumberInstance(Locale.US)
     return when {
-        price >= 1_000 -> {
-            fmt.maximumFractionDigits = 0
-            "\$${fmt.format(price)}"
-        }
-        price >= 1 -> {
-            fmt.maximumFractionDigits = 2
-            fmt.minimumFractionDigits = 2
-            "\$${fmt.format(price)}"
-        }
-        else -> {
-            fmt.maximumFractionDigits = 4
-            fmt.minimumFractionDigits = 4
-            "\$${fmt.format(price)}"
-        }
+        price >= 1_000 -> { fmt.maximumFractionDigits = 0; "\$${fmt.format(price)}" }
+        price >= 1     -> { fmt.maximumFractionDigits = 2; fmt.minimumFractionDigits = 2; "\$${fmt.format(price)}" }
+        else           -> { fmt.maximumFractionDigits = 4; fmt.minimumFractionDigits = 4; "\$${fmt.format(price)}" }
     }
 }
 
@@ -449,10 +593,11 @@ private fun formatMarketCap(value: Double): String = when {
     value >= 1_000_000_000_000 -> "${"%.1f".format(value / 1_000_000_000_000)}T"
     value >= 1_000_000_000     -> "${"%.0f".format(value / 1_000_000_000)}B"
     value >= 1_000_000         -> "${"%.0f".format(value / 1_000_000)}M"
-    else                       -> "${"%.0f".format(value)}"
+    else                       -> value.toLong().toString()
 }
 
-// ── Add to collection bottom sheet ───────────────────────────────────────────
+// ─── Add to collection bottom sheet ──────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddToCollectionBottomSheet(
@@ -480,16 +625,14 @@ private fun AddToCollectionBottomSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-
             if (collections.isEmpty()) {
                 Text(
-                    text = "No collections yet. Create one below!",
+                    "No collections yet. Create one below!",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
             }
-
             collections.forEach { collection ->
                 val isAdded = coinCollectionIds.contains(collection.id)
                 Row(
@@ -521,9 +664,7 @@ private fun AddToCollectionBottomSheet(
                 }
                 HorizontalDivider()
             }
-
             Spacer(Modifier.height(16.dp))
-
             if (showCreateDialog) {
                 OutlinedTextField(
                     value = newCollectionName,
@@ -542,32 +683,26 @@ private fun AddToCollectionBottomSheet(
                         onClick = {
                             if (newCollectionName.isNotBlank()) {
                                 onCreateCollection(newCollectionName.trim())
-                                newCollectionName = ""
-                                showCreateDialog = false
+                                newCollectionName = ""; showCreateDialog = false
                             }
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("Create") }
                 }
             } else {
-                OutlinedButton(
-                    onClick = { showCreateDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("+ New Collection") }
+                OutlinedButton(onClick = { showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("+ New Collection")
+                }
             }
         }
     }
 }
 
-// ── Loading / Error states ────────────────────────────────────────────────────
+// ─── Loading / Error states ───────────────────────────────────────────────────
+
 @Composable
 private fun LoadingFooter() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(modifier = Modifier.size(24.dp))
     }
 }
@@ -575,14 +710,12 @@ private fun LoadingFooter() {
 @Composable
 private fun ErrorFooter(message: String?, onRetry: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = message ?: "Something went wrong",
+            message ?: "Something went wrong",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.weight(1f)
@@ -594,17 +727,11 @@ private fun ErrorFooter(message: String?, onRetry: () -> Unit) {
 @Composable
 private fun ErrorContent(message: String?, onRetry: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
+        Modifier.fillMaxWidth().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = message ?: "Failed to load coins",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error
-        )
+        Text(message ?: "Failed to load coins", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         Button(onClick = onRetry) { Text("Retry") }
     }
 }
