@@ -1,6 +1,7 @@
 package com.example.cryptopricetracker.presentation.coinlist
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,11 +10,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.TrendingDown
-import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.FolderCopy
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.*
@@ -22,10 +20,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -217,80 +219,116 @@ fun CoinListItem(
 ) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val isInAnyCollection = coinCollectionIds.isNotEmpty()
+    val isPositive = (coin.priceChangePercentage24h ?: 0.0) >= 0
+    val changeColor = if (isPositive) Color(0xFF00C853) else Color(0xFFD50000)
 
     val bookmarkTint by animateColorAsState(
-        targetValue = if (isInAnyCollection) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (isInAnyCollection) Color(0xFFF5B800) else MaterialTheme.colorScheme.onSurfaceVariant,
         label = "bookmark_tint"
     )
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Rank badge
-            coin.marketCapRank?.let { rank ->
-                Text(
-                    text = "#$rank",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(32.dp)
-                )
-            }
-
-            // Coin icon
-            AsyncImage(
-                model = coin.imageUrl,
-                contentDescription = coin.name,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
+            // ── Rank ──────────────────────────────────────────────────────────
+            Text(
+                text = "${coin.marketCapRank ?: "-"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(24.dp)
             )
+
+            Spacer(Modifier.width(8.dp))
+
+            // ── Circular icon ─────────────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                if (coin.imageUrl != null) {
+                    AsyncImage(
+                        model = coin.imageUrl,
+                        contentDescription = coin.name,
+                        modifier = Modifier.size(44.dp).clip(CircleShape)
+                    )
+                } else {
+                    // Initials fallback
+                    Text(
+                        text = coin.symbol.take(2).uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             Spacer(Modifier.width(12.dp))
 
-            // Name + symbol
+            // ── Name + symbol · market cap ─────────────────────────────────────
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = coin.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = coin.symbol.uppercase(),
+                    text = "${coin.symbol.uppercase()} · ${formatMarketCap(coin.marketCap)}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
-            }
-
-            // Price + change
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = formatPrice(livePrice),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                PriceChangeBadge(coin.priceChangePercentage24h)
             }
 
             Spacer(Modifier.width(8.dp))
 
-            // Bookmark / Add to collection
-            IconButton(onClick = { showBottomSheet = true }) {
+            // ── Sparkline ─────────────────────────────────────────────────────
+            Sparkline(
+                isPositive = isPositive,
+                color = changeColor,
+                modifier = Modifier.size(width = 56.dp, height = 32.dp)
+            )
+
+            Spacer(Modifier.width(12.dp))
+
+            // ── Price + change badge ───────────────────────────────────────────
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = formatPrice(livePrice),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Spacer(Modifier.height(4.dp))
+                PriceChangeBadge(coin.priceChangePercentage24h)
+            }
+
+            Spacer(Modifier.width(4.dp))
+
+            // ── Bookmark ──────────────────────────────────────────────────────
+            IconButton(
+                onClick = { showBottomSheet = true },
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(
                     imageVector = if (isInAnyCollection) Icons.Default.Bookmark
                     else Icons.Default.BookmarkBorder,
                     contentDescription = "Add to collection",
-                    tint = bookmarkTint
+                    tint = bookmarkTint,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -317,195 +355,99 @@ fun CoinListItem(
     }
 }
 
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+// Draws a simple 5-point line chart that trends up for positive and down for
+// negative 24h change, with a subtle filled area beneath it.
+@Composable
+private fun Sparkline(
+    isPositive: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val mid = h * 0.5f
+
+        // 5 x-positions evenly spaced
+        val xs = listOf(0f, w * 0.25f, w * 0.5f, w * 0.75f, w)
+
+        // y-points: positive trends upward (low y = high), negative downward
+        val ys: List<Float> = if (isPositive) {
+            listOf(h * 0.75f, h * 0.55f, h * 0.65f, h * 0.35f, h * 0.15f)
+        } else {
+            listOf(h * 0.25f, h * 0.45f, h * 0.35f, h * 0.65f, h * 0.85f)
+        }
+
+        // Filled area path
+        val fillPath = Path().apply {
+            moveTo(xs[0], ys[0])
+            for (i in 1 until xs.size) {
+                lineTo(xs[i], ys[i])
+            }
+            lineTo(xs.last(), h)
+            lineTo(xs.first(), h)
+            close()
+        }
+        drawPath(fillPath, color = color.copy(alpha = 0.12f))
+
+        // Line path
+        val linePath = Path().apply {
+            moveTo(xs[0], ys[0])
+            for (i in 1 until xs.size) {
+                lineTo(xs[i], ys[i])
+            }
+        }
+        drawPath(linePath, color = color, style = Stroke(width = 2.5f))
+    }
+}
+
+// ── Price change badge ────────────────────────────────────────────────────────
 @Composable
 private fun PriceChangeBadge(changePercent: Double?) {
     if (changePercent == null) return
     val isPositive = changePercent >= 0
     val color = if (isPositive) Color(0xFF00C853) else Color(0xFFD50000)
-    val icon = if (isPositive) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown
+    val arrow = if (isPositive) "▲" else "▼"
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .background(color.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-    ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
-        Spacer(Modifier.width(2.dp))
-        Text(
-            text = "${"%.2f".format(changePercent)}%",
-            style = MaterialTheme.typography.labelSmall,
-            color = color
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddToCollectionBottomSheet(
-    coin: Coin,
-    collections: List<CoinCollection>,
-    coinCollectionIds: List<Long>,
-    onDismiss: () -> Unit,
-    onAddToCollection: (Long) -> Unit,
-    onRemoveFromCollection: (Long) -> Unit,
-    onCreateCollection: (String) -> Unit
-) {
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var newCollectionName by remember { mutableStateOf("") }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = "Add ${coin.name} to collection",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            if (collections.isEmpty()) {
-                Text(
-                    text = "No collections yet. Create one below!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-            }
-
-            collections.forEach { collection ->
-                val isAdded = coinCollectionIds.contains(collection.id)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            if (isAdded) onRemoveFromCollection(collection.id)
-                            else onAddToCollection(collection.id)
-                        }
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(collection.name, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "${collection.coins.size} coins",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Checkbox(checked = isAdded, onCheckedChange = {
-                        if (isAdded) onRemoveFromCollection(collection.id)
-                        else onAddToCollection(collection.id)
-                    })
-                }
-                HorizontalDivider()
-            }
-
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = { showCreateDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("+ Create new collection")
-            }
-        }
-    }
-
-    if (showCreateDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            title = { Text("New Collection") },
-            text = {
-                OutlinedTextField(
-                    value = newCollectionName,
-                    onValueChange = { newCollectionName = it },
-                    label = { Text("Collection name") },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newCollectionName.isNotBlank()) {
-                            onCreateCollection(newCollectionName.trim())
-                            showCreateDialog = false
-                            newCollectionName = ""
-                        }
-                    }
-                ) { Text("Create") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-}
-
-@Composable
-private fun LoadingFooter() {
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+        Text(
+            text = "$arrow ${"%.2f".format(Math.abs(changePercent))}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
-@Composable
-private fun ErrorFooter(message: String?, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = message ?: "An error occurred",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error
-        )
-        TextButton(onClick = onRetry) { Text("Retry") }
-    }
-}
-
-@Composable
-private fun ErrorContent(message: String?, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Failed to load coins",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.error
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = message ?: "Unknown error",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onRetry) { Text("Try Again") }
-    }
-}
-
+// ── Helpers ───────────────────────────────────────────────────────────────────
 fun formatPrice(price: Double): String {
-    val formatter = NumberFormat.getCurrencyInstance(Locale.US)
-    return if (price < 1.0) {
-        formatter.maximumFractionDigits = 6
-        formatter.format(price)
-    } else {
-        formatter.format(price)
+    val fmt = NumberFormat.getNumberInstance(Locale.US)
+    return when {
+        price >= 1_000 -> {
+            fmt.maximumFractionDigits = 0
+            "\$${fmt.format(price)}"
+        }
+        price >= 1 -> {
+            fmt.maximumFractionDigits = 2
+            fmt.minimumFractionDigits = 2
+            "\$${fmt.format(price)}"
+        }
+        else -> {
+            fmt.maximumFractionDigits = 4
+            fmt.minimumFractionDigits = 4
+            "\$${fmt.format(price)}"
+        }
     }
+}
+
+private fun formatMarketCap(value: Double): String = when {
+    value >= 1_000_000_000_000 -> "${"%.1f".format(value / 1_000_000_000_000)}T"
+    value >= 1_000_000_000     -> "${"%.0f".format(value / 1_000_000_000)}B"
+    value >= 1_000_000         -> "${"%.0f".format(value / 1_000_000)}M"
+    else                       -> "${"%.0f".format(value)}"
 }
