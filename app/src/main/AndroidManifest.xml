@@ -15,6 +15,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CryptoPriceTracker">
 
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
+
         <!-- Main entry point -->
         <activity
             android:name=".presentation.MainActivity"
