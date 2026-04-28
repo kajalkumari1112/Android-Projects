@@ -104,6 +104,10 @@ class CoinListViewModel @Inject constructor(
             is CoinListEvent.SubscribePrices -> subscribeToPrices(event.symbols)
             is CoinListEvent.SearchQueryChanged -> _uiState.update { it.copy(searchQuery = event.query) }
             is CoinListEvent.FilterChanged -> _uiState.update { it.copy(activeFilter = event.filter) }
+            is CoinListEvent.SortChanged -> _uiState.update { state ->
+                val newOrder = if (state.sortBy == event.sortBy && state.sortOrder == SortOrder.ASC) SortOrder.DESC else SortOrder.ASC
+                state.copy(sortBy = event.sortBy, sortOrder = newOrder)
+            }
         }
     }
 }

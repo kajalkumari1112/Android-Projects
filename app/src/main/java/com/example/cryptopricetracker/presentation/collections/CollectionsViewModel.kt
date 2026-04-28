@@ -15,6 +15,7 @@ class CollectionsViewModel @Inject constructor(
     private val deleteCollection: DeleteCollectionUseCase,
     private val removeCoinFromCollection: RemoveCoinFromCollectionUseCase,
     private val pinCollectionAsWidget: PinCollectionAsWidgetUseCase,
+    private val createCollection: CreateCollectionUseCase,
     private val widgetRefreshHelper: WidgetRefreshHelper
 ) : ViewModel() {
 
@@ -65,6 +66,10 @@ class CollectionsViewModel @Inject constructor(
                 pinCollectionAsWidget(event.collectionId, event.widgetId)
                 _effect.emit("Collection pinned as widget!")
                 widgetRefreshHelper.refreshAll()
+            }
+            is CollectionsEvent.CreateCollection -> viewModelScope.launch {
+                createCollection(event.name)
+                _effect.emit("Collection '${event.name}' created!")
             }
         }
     }

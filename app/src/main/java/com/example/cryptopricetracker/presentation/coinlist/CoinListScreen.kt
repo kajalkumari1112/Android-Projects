@@ -16,9 +16,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.FolderCopy
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -80,12 +79,13 @@ fun CoinListScreen(
             TopAppBar(
                 title = { Text("Crypto Tracker", fontWeight = FontWeight.Bold) },
                 actions = {
-                    // Quick widget menu — requirement 2c: widget setup within the app
-                    IconButton(onClick = { showWidgetSheet = true }) {
-                        Icon(Icons.Default.Widgets, contentDescription = "Add Widget")
-                    }
+                    // Collections — bookmark icon
                     IconButton(onClick = onNavigateToCollections) {
-                        Icon(Icons.Default.FolderCopy, contentDescription = "My Collections")
+                        Icon(Icons.Default.BookmarkBorder, contentDescription = "My Collections")
+                    }
+                    // Pin widget — pushpin icon
+                    IconButton(onClick = { showWidgetSheet = true }) {
+                        Icon(Icons.Default.PushPin, contentDescription = "Add Widget")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -116,7 +116,8 @@ fun CoinListScreen(
                 },
                 onCoinVisible = { coinId -> viewModel.observeCollectionMembership(coinId) },
                 onSearchQueryChanged = { viewModel.onEvent(CoinListEvent.SearchQueryChanged(it)) },
-                onFilterChanged = { viewModel.onEvent(CoinListEvent.FilterChanged(it)) }
+                onFilterChanged = { viewModel.onEvent(CoinListEvent.FilterChanged(it)) },
+                onSortChanged = { viewModel.onEvent(CoinListEvent.SortChanged(it)) }
             )
         }
     }
@@ -142,14 +143,14 @@ private fun CoinPagingList(
     onCreateCollection: (String, String) -> Unit,
     onCoinVisible: (String) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
-    onFilterChanged: (CoinFilter) -> Unit
+    onFilterChanged: (CoinFilter) -> Unit,
+    onSortChanged: (SortBy) -> Unit
 ) {
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
 
-    // Apply search + filter client-side over the visible paged items
     val allCoins = (0 until pagedCoins.itemCount).mapNotNull { pagedCoins.peek(it) }
-    val filtered = remember(allCoins, uiState.searchQuery, uiState.activeFilter, uiState.coinCollectionIds, uiState.livePrices) {
+    val filtered = remember(allCoins, uiState.searchQuery, uiState.activeFilter, uiState.coinCollectionIds, uiState.livePrices, uiState.sortBy, uiState.sortOrder) {
         allCoins
             .filter { coin ->
                 val q = uiState.searchQuery.trim().lowercase()
@@ -166,6 +167,17 @@ private fun CoinPagingList(
                         (uiState.coinCollectionIds[it.id] ?: emptyList()).isNotEmpty()
                     }
                 }
+            }
+            .let { list ->
+                // Apply sort only when not already sorted by a filter-specific order
+                if (uiState.activeFilter == CoinFilter.ALL || uiState.activeFilter == CoinFilter.WATCHLIST) {
+                    val sorted = when (uiState.sortBy) {
+                        SortBy.RANK -> list.sortedBy { it.marketCapRank ?: Int.MAX_VALUE }
+                        SortBy.PRICE -> list.sortedBy { uiState.livePrices[it.binanceSymbol] ?: it.currentPrice }
+                        SortBy.CHANGE -> list.sortedBy { it.priceChangePercentage24h ?: 0.0 }
+                    }
+                    if (uiState.sortOrder == SortOrder.DESC) sorted.reversed() else sorted
+                } else list
             }
     }
 
@@ -199,6 +211,9 @@ private fun CoinPagingList(
         item {
             SummaryHeader(
                 count = filtered.size,
+                sortBy = uiState.sortBy,
+                sortOrder = uiState.sortOrder,
+                onSortChanged = onSortChanged,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -346,7 +361,31 @@ private fun FilterChipRow(
 // ─── Summary header ───────────────────────────────────────────────────────────
 
 @Composable
-private fun SummaryHeader(count: Int, modifier: Modifier = Modifier) {
+private fun SummaryHeader(
+    count: Int,
+    sortBy: SortBy,
+    sortOrder: SortOrder,
+    onSortChanged: (SortBy) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val activeSortColor = Color(0xFF6C3CE1)
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    @Composable
+    fun SortLabel(label: String, column: SortBy) {
+        val isActive = sortBy == column
+        val arrow = if (isActive) (if (sortOrder == SortOrder.ASC) " ↑" else " ↓") else ""
+        Text(
+            text = label + arrow,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+            color = if (isActive) activeSortColor else inactiveColor,
+            modifier = Modifier
+                .clickable { onSortChanged(column) }
+                .padding(4.dp)
+        )
+    }
+
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
@@ -355,37 +394,14 @@ private fun SummaryHeader(count: Int, modifier: Modifier = Modifier) {
             text = "$count COINS",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = inactiveColor,
             modifier = Modifier.weight(1f)
         )
-        // RANK pill
-        Box(
-            modifier = Modifier
-                .background(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    RoundedCornerShape(50)
-                )
-                .padding(horizontal = 10.dp, vertical = 3.dp)
-        ) {
-            Text(
-                "RANK",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            "PRICE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            "CHANGE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        SortLabel("RANK", SortBy.RANK)
+        Spacer(Modifier.width(8.dp))
+        SortLabel("PRICE", SortBy.PRICE)
+        Spacer(Modifier.width(8.dp))
+        SortLabel("CHANGE", SortBy.CHANGE)
     }
 }
 

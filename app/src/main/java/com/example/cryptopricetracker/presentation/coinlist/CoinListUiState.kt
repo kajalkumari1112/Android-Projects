@@ -4,12 +4,17 @@ import com.example.cryptopricetracker.domain.model.CoinCollection
 
 enum class CoinFilter { ALL, TOP_GAINERS, LOSERS, WATCHLIST }
 
+enum class SortBy { RANK, PRICE, CHANGE }
+enum class SortOrder { ASC, DESC }
+
 data class CoinListUiState(
     val livePrices: Map<String, Double> = emptyMap(),
     val collections: List<CoinCollection> = emptyList(),
     val coinCollectionIds: Map<String, List<Long>> = emptyMap(),
     val searchQuery: String = "",
-    val activeFilter: CoinFilter = CoinFilter.ALL
+    val activeFilter: CoinFilter = CoinFilter.ALL,
+    val sortBy: SortBy = SortBy.RANK,
+    val sortOrder: SortOrder = SortOrder.ASC
 )
 
 sealed class CoinListEvent {
@@ -19,4 +24,5 @@ sealed class CoinListEvent {
     data class SubscribePrices(val symbols: List<String>) : CoinListEvent()
     data class SearchQueryChanged(val query: String) : CoinListEvent()
     data class FilterChanged(val filter: CoinFilter) : CoinListEvent()
+    data class SortChanged(val sortBy: SortBy) : CoinListEvent()
 }

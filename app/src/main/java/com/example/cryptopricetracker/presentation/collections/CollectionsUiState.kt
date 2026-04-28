@@ -11,5 +11,5 @@ sealed class CollectionsEvent {
     data class DeleteCollection(val collectionId: Long) : CollectionsEvent()
     data class RemoveCoin(val collectionId: Long, val coinId: String) : CollectionsEvent()
     data class PinAsWidget(val collectionId: Long, val widgetId: Int) : CollectionsEvent()
+    data class CreateCollection(val name: String) : CollectionsEvent()
 }
-
