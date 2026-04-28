@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 
@@ -46,6 +47,18 @@ object WidgetPrefsStore {
             .firstOrNull()
     }
 
+    // ── Reactive Flow (used by provideContent inside the widget) ─────────────
+
+    /**
+     * Returns a cold Flow that emits the collection ID assigned to [appWidgetId],
+     * or null when none is stored. Used inside provideContent so the widget
+     * recomposes automatically the moment saveAndFinish writes a new mapping.
+     */
+    fun collectionIdFlow(context: Context, appWidgetId: Int): Flow<Long?> {
+        val key = widgetKey(appWidgetId)
+        return context.widgetDataStore.data.map { prefs -> prefs[key] }
+    }
+
     // ── Writes ───────────────────────────────────────────────────────────────
 
     suspend fun saveCollectionForWidget(context: Context, appWidgetId: Int, collectionId: Long) {
@@ -82,4 +95,3 @@ object WidgetPrefsStore {
         }
     }
 }
-

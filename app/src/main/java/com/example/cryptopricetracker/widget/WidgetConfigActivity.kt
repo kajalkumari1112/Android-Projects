@@ -122,6 +122,7 @@ class WidgetConfigActivity : ComponentActivity() {
             WidgetPrefsStore.saveCollectionForWidget(
                 this@WidgetConfigActivity, appWidgetId, collection.id
             )
+            WidgetPrefsStore.clearPending(this@WidgetConfigActivity)
         }
 
         val glanceManager = GlanceAppWidgetManager(this@WidgetConfigActivity)
