@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="512dp"
+    android:height="512dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Background circle gradient -->
+    <path
+        android:pathData="M256,256m-240,0a240,240 0,1 1,480 0a240,240 0,1 1,-480 0"
+        android:fillColor="#1A237E" />
+
+    <!-- Inner glow -->
+    <path
+        android:pathData="M256,256m-200,0a200,200 0,1 1,400 0a200,200 0,1 1,-400 0"
+        android:fillColor="#283593" />
+
+    <!-- Bitcoin-style "C" for Crypto -->
+    <path
+        android:pathData="M280,160 L232,160 L232,176 L216,176 L216,192 L200,192 L200,320 L216,320 L216,336 L232,336 L232,352 L280,352 L280,336 L296,336 L296,320 L312,320 L312,272 L296,272 L296,256 L312,256 L312,192 L296,192 L296,176 L280,176 Z M264,208 L280,208 L280,240 L264,240 Z M264,272 L280,272 L280,304 L264,304 Z"
+        android:fillColor="#FFD54F" />
+
+    <!-- Chart line (trending up) -->
+    <path
+        android:pathData="M128,320 L176,280 L224,296 L272,240 L320,216 L368,200 L384,176"
+        android:strokeColor="#00E676"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Arrow tip -->
+    <path
+        android:pathData="M372,176 L384,176 L384,188"
+        android:strokeColor="#00E676"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+</vector>
+
