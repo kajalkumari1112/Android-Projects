@@ -20,6 +20,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            // Credentials are injected as environment variables by the CI workflow.
+            // For local signing, set these vars in your shell or ~/.gradle/gradle.properties.
+            storeFile = System.getenv("KEYSTORE_PATH")?.let { file(it) }
+            storePassword = System.getenv("STORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -27,6 +38,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Use the release signing config only when all credentials are present
+            val canSign = System.getenv("KEYSTORE_PATH") != null &&
+                          System.getenv("STORE_PASSWORD") != null &&
+                          System.getenv("KEY_ALIAS") != null &&
+                          System.getenv("KEY_PASSWORD") != null
+            if (canSign) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
