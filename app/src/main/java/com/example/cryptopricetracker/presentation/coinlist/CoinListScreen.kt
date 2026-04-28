@@ -451,3 +451,160 @@ private fun formatMarketCap(value: Double): String = when {
     value >= 1_000_000         -> "${"%.0f".format(value / 1_000_000)}M"
     else                       -> "${"%.0f".format(value)}"
 }
+
+// ── Add to collection bottom sheet ───────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddToCollectionBottomSheet(
+    coin: Coin,
+    collections: List<CoinCollection>,
+    coinCollectionIds: List<Long>,
+    onDismiss: () -> Unit,
+    onAddToCollection: (Long) -> Unit,
+    onRemoveFromCollection: (Long) -> Unit,
+    onCreateCollection: (String) -> Unit
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newCollectionName by remember { mutableStateOf("") }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "Add ${coin.name} to collection",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            if (collections.isEmpty()) {
+                Text(
+                    text = "No collections yet. Create one below!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+
+            collections.forEach { collection ->
+                val isAdded = coinCollectionIds.contains(collection.id)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (isAdded) onRemoveFromCollection(collection.id)
+                            else onAddToCollection(collection.id)
+                        }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(collection.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${collection.coins.size} coins",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Checkbox(
+                        checked = isAdded,
+                        onCheckedChange = {
+                            if (isAdded) onRemoveFromCollection(collection.id)
+                            else onAddToCollection(collection.id)
+                        }
+                    )
+                }
+                HorizontalDivider()
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            if (showCreateDialog) {
+                OutlinedTextField(
+                    value = newCollectionName,
+                    onValueChange = { newCollectionName = it },
+                    label = { Text("Collection name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { showCreateDialog = false; newCollectionName = "" },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Cancel") }
+                    Button(
+                        onClick = {
+                            if (newCollectionName.isNotBlank()) {
+                                onCreateCollection(newCollectionName.trim())
+                                newCollectionName = ""
+                                showCreateDialog = false
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Create") }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("+ New Collection") }
+            }
+        }
+    }
+}
+
+// ── Loading / Error states ────────────────────────────────────────────────────
+@Composable
+private fun LoadingFooter() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+    }
+}
+
+@Composable
+private fun ErrorFooter(message: String?, onRetry: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = message ?: "Something went wrong",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(onClick = onRetry) { Text("Retry") }
+    }
+}
+
+@Composable
+private fun ErrorContent(message: String?, onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = message ?: "Failed to load coins",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error
+        )
+        Button(onClick = onRetry) { Text("Retry") }
+    }
+}
